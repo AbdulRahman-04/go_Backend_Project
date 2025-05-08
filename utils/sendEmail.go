@@ -4,22 +4,31 @@ import (
 	"log"
 
 	"github.com/go-mail/mail"
-	 "Go_Backend/config"// Apna module name use karo
+	"Go_Backend/config"
 )
 
+// EmailData struct for email sending
+type EmailData struct {
+	From    string
+	To      string
+	Subject string
+	Text    string
+	HTML    string
+}
+
 // SendEmail sends an email using SMTP
-func SendEmail(to, subject, text, html string) error {
-	cfg := config.LoadConfig() // Load config
+func SendEmail(data EmailData) error {
+	cfg := config.LoadConfig()
 	m := mail.NewMessage()
 
-	m.SetHeader("From", cfg.Email)
-	m.SetHeader("To", to)
-	m.SetHeader("Subject", subject)
-	if text != "" {
-		m.SetBody("text/plain", text)
+	m.SetHeader("From", data.From)
+	m.SetHeader("To", data.To)
+	m.SetHeader("Subject", data.Subject)
+	if data.Text != "" {
+		m.SetBody("text/plain", data.Text)
 	}
-	if html != "" {
-		m.SetBody("text/html", html)
+	if data.HTML != "" {
+		m.SetBody("text/html", data.HTML)
 	}
 
 	// SMTP Server Configuration
@@ -32,6 +41,6 @@ func SendEmail(to, subject, text, html string) error {
 		return err
 	}
 
-	log.Printf("Email sent successfully to %s ✅", to)
+	log.Printf("Email sent successfully to %s ✅", data.To)
 	return nil
 }

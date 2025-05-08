@@ -8,26 +8,42 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"Go_Backend/config" // Apna module name use karo
+	"Go_Backend/config"
 )
 
-// ConnectDB establishes a MongoDB connection
-func ConnectDB() (*mongo.Client, error) {
-	cfg := config.LoadConfig() // Load config
+// Global MongoDB Client
+var client *mongo.Client
+
+// ConnectDB initializes a connection to MongoDB
+func ConnectDB() error {
+	cfg := config.LoadConfig()
+	log.Printf("🔄 Connecting to MongoDB at %s...", cfg.DBUrl)
+
 	clientOptions := options.Client().ApplyURI(cfg.DBUrl)
 
-	client, err := mongo.Connect(context.TODO(), clientOptions)
+	var err error
+	client, err = mongo.Connect(context.TODO(), clientOptions)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to connect to database: %v", err)
+		log.Fatalf("❌ Failed to connect to database: %v", err)
+		return fmt.Errorf("failed to connect to database: %v", err)
 	}
 
-	// Ping to confirm successful connection
+	// Ping to confirm connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx, nil); err != nil {
-		return nil, fmt.Errorf("Database ping failed: %v", err)
+		log.Fatalf("❌ Database ping failed: %v", err)
+		return fmt.Errorf("database ping failed: %v", err)
 	}
 
-	log.Println("DATABASE CONNECTED SUCCESSFULLY! ✅")
-	return client, nil
+	log.Println("✅ DATABASE CONNECTED SUCCESSFULLY!")
+	return nil
+}
+
+// GetCollection returns the specified MongoDB collection
+func GetCollection(name string) *mongo.Collection {
+	if client == nil {
+		log.Fatalf("❌ MongoDB client is nil! Check if ConnectDB() failed.")
+	}
+	return client.Database("your_database_name").Collection(name)
 }
