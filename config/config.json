@@ -1,0 +1,14 @@
+{
+    "PORT": 5006,
+    "DB_URL": "mongodb+srv://abdrahman:abdrahman@rahmann18.hy9zl.mongodb.net/TS_BACKEND_PRACTICE",
+    "EMAIL": "abdulrahman.81869@gmail.com",
+    "PASS": "bvfbujtvwnjkkjte",
+    "SID": "",
+    "TOKEN": "",
+    "PHONE": "",
+    "URL": "http://localhost:5006",
+    "JWT_KEY": "RAHMAN123",
+    "CLOUDINARY_CLOUD_NAME": "dmljad20u",
+    "CLOUDINARY_API_KEY": "833625591869844",
+    "CLOUDINARY_API_SECRET": "RDfKz-lQwnCG3fAjiu_-X801ZxA"
+  }
