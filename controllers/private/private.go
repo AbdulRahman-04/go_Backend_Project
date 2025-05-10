@@ -1,164 +1,159 @@
 package private
 
 import (
-	"context"
-	"log"
-	"net/http"
-	"os"
-	
+    "context"
+    "log"
+    "net/http"
+    "os"
 
-	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"Go_Backend/models"
-	"Go_Backend/utils"
+    "github.com/gin-gonic/gin"
+    "go.mongodb.org/mongo-driver/bson"
+    "go.mongodb.org/mongo-driver/bson/primitive"
+    "go.mongodb.org/mongo-driver/mongo"
+
+    "Go_Backend/models"
+    "Go_Backend/utils"
 )
 
-// ✅ Add Todo (POST)
+var todoCollection *mongo.Collection
+
+// SetupPrivateRoutes initializes the collection and routes (call after ConnectDB)
+func SetupPrivateRoutes(rg *gin.RouterGroup) {
+    todoCollection = utils.GetCollection("todos")
+
+    rg.POST("/addtodo", AddTodo)
+    rg.GET("/alltodos", GetAllTodos)
+    rg.GET("/getone/:id", GetOneTodo)
+    rg.PUT("/editone/:id", EditTodo)
+    rg.DELETE("/deleteone/:id", DeleteTodo)
+    rg.DELETE("/deleteall", DeleteAllTodos)
+}
+
 func AddTodo(c *gin.Context) {
-	collection := utils.GetCollection("todos")
+    var newTodo models.Todo
+    if err := c.ShouldBindJSON(&newTodo); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid input ❌"})
+        return
+    }
 
-	var newTodo models.Todo
-	if err := c.ShouldBindJSON(&newTodo); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid input ❌"})
-		return
-	}
+    if _, err := os.Stat("uploads"); os.IsNotExist(err) {
+        os.Mkdir("uploads", os.ModePerm)
+    }
 
-	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
-		os.Mkdir("uploads", os.ModePerm)
-	}
+    if file, err := c.FormFile("file"); err == nil {
+        path := "uploads/" + file.Filename
+        if err := c.SaveUploadedFile(file, path); err != nil {
+            log.Println("❌ File upload failed:", err)
+            c.JSON(http.StatusInternalServerError, gin.H{"msg": "File upload failed ❌"})
+            return
+        }
+        newTodo.Image = path
+    }
 
-	if file, err := c.FormFile("file"); err == nil {
-		filePath := "uploads/" + file.Filename
-		if err := c.SaveUploadedFile(file, filePath); err != nil {
-			log.Println("❌ File upload failed:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"msg": "File upload failed ❌"})
-			return
-		}
-		newTodo.Image = filePath
-	}
+    newTodo.ID = primitive.NewObjectID()
+    if _, err := todoCollection.InsertOne(context.TODO(), newTodo); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"msg": "Database error ❌"})
+        return
+    }
 
-	newTodo.ID = primitive.NewObjectID()
-	if _, err := collection.InsertOne(context.TODO(), newTodo); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Database error ❌"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"msg": "Todo added successfully ✅", "todo": newTodo})
+    c.JSON(http.StatusCreated, gin.H{"msg": "Todo added successfully ✅", "todo": newTodo})
 }
 
-// ✅ Get One Todo
 func GetOneTodo(c *gin.Context) {
-	collection := utils.GetCollection("todos")
-	id := c.Param("id")
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid ID format ❌"})
-		return
-	}
-
-	var todo models.Todo
-	if err := collection.FindOne(context.TODO(), bson.M{"_id": objID}).Decode(&todo); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"msg": "Todo not found ❌"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"todo": todo})
+    id := c.Param("id")
+    objID, err := primitive.ObjectIDFromHex(id)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid ID format ❌"})
+        return
+    }
+    var todo models.Todo
+    if err := todoCollection.FindOne(context.TODO(), bson.M{"_id": objID}).Decode(&todo); err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"msg": "Todo not found ❌"})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"todo": todo})
 }
 
-// ✅ Get All Todos
 func GetAllTodos(c *gin.Context) {
-	collection := utils.GetCollection("todos")
+    cursor, err := todoCollection.Find(context.TODO(), bson.M{})
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"msg": "Database error ❌"})
+        return
+    }
+    defer cursor.Close(context.TODO())
 
-	cursor, err := collection.Find(context.TODO(), bson.M{})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Database error ❌"})
-		return
-	}
-	defer cursor.Close(context.TODO())
-
-	var todos []models.Todo
-	if err := cursor.All(context.TODO(), &todos); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error fetching todos ❌"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"todos": todos})
+    var todos []models.Todo
+    if err := cursor.All(context.TODO(), &todos); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error fetching todos ❌"})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"todos": todos})
 }
 
-// ✅ Edit Todo
 func EditTodo(c *gin.Context) {
-	collection := utils.GetCollection("todos")
-	id := c.Param("id")
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid ID format ❌"})
-		return
-	}
+    id := c.Param("id")
+    objID, err := primitive.ObjectIDFromHex(id)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid ID format ❌"})
+        return
+    }
 
-	var updatedTodo models.Todo
-	if err := c.ShouldBindJSON(&updatedTodo); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid input ❌"})
-		return
-	}
+    var updated models.Todo
+    if err := c.ShouldBindJSON(&updated); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid input ❌"})
+        return
+    }
 
-	if file, err := c.FormFile("fileUpload"); err == nil {
-		filePath := "uploads/" + file.Filename
-		if err := c.SaveUploadedFile(file, filePath); err != nil {
-			log.Println("❌ File upload failed:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"msg": "File upload failed ❌"})
-			return
-		}
-		updatedTodo.Image = filePath
-	}
+    if file, err := c.FormFile("fileUpload"); err == nil {
+        path := "uploads/" + file.Filename
+        if err := c.SaveUploadedFile(file, path); err != nil {
+            log.Println("❌ File upload failed:", err)
+            c.JSON(http.StatusInternalServerError, gin.H{"msg": "File upload failed ❌"})
+            return
+        }
+        updated.Image = path
+    }
 
-	_, err = collection.UpdateOne(
-		context.TODO(),
-		bson.M{"_id": objID},
-		bson.M{"$set": bson.M{
-			"date":            updatedTodo.Date,
-			"taskTitle":       updatedTodo.TaskTitle,
-			"taskDescription": updatedTodo.TaskDescription,
-			"image":           updatedTodo.Image,
-		}},
-	)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error updating todo ❌"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"msg": "Todo updated successfully ✅", "updatedTodo": updatedTodo})
+    _, err = todoCollection.UpdateOne(
+        context.TODO(),
+        bson.M{"_id": objID},
+        bson.M{"$set": bson.M{
+            "date":            updated.Date,
+            "taskTitle":       updated.TaskTitle,
+            "taskDescription": updated.TaskDescription,
+            "image":           updated.Image,
+        }},
+    )
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error updating todo ❌"})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"msg": "Todo updated successfully ✅", "updatedTodo": updated})
 }
 
-// ✅ Delete One Todo
 func DeleteTodo(c *gin.Context) {
-	collection := utils.GetCollection("todos")
-	id := c.Param("id")
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid ID format ❌"})
-		return
-	}
-
-	result, err := collection.DeleteOne(context.TODO(), bson.M{"_id": objID})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error deleting todo ❌"})
-		return
-	}
-	if result.DeletedCount == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"msg": "Todo not found ❌"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"msg": "Todo deleted successfully ✅"})
+    id := c.Param("id")
+    objID, err := primitive.ObjectIDFromHex(id)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid ID format ❌"})
+        return
+    }
+    res, err := todoCollection.DeleteOne(context.TODO(), bson.M{"_id": objID})
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error deleting todo ❌"})
+        return
+    }
+    if res.DeletedCount == 0 {
+        c.JSON(http.StatusNotFound, gin.H{"msg": "Todo not found ❌"})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"msg": "Todo deleted successfully ✅"})
 }
 
-// ✅ Delete All Todos
 func DeleteAllTodos(c *gin.Context) {
-	collection := utils.GetCollection("todos")
-	if _, err := collection.DeleteMany(context.TODO(), bson.M{}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error deleting todos ❌"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"msg": "All todos deleted successfully ✅"})
+    if _, err := todoCollection.DeleteMany(context.TODO(), bson.M{}); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error deleting todos ❌"})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"msg": "All todos deleted successfully ✅"})
 }

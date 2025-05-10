@@ -7,19 +7,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"Go_Backend/config"
-	"Go_Backend/utils"
-	"Go_Backend/controllers/public"
 	"Go_Backend/controllers/private"
+	"Go_Backend/controllers/public"
 	"Go_Backend/middleware"
+	"Go_Backend/utils"
 )
 
 func main() {
-	// Initialize Gin Router
-	router := gin.Default()
-
-	// Set Release Mode (Production)
-	gin.SetMode(gin.ReleaseMode)
-
 	// Load Configuration
 	cfg := config.LoadConfig()
 	portStr := strconv.Itoa(cfg.Port)
@@ -30,7 +24,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("❌ Database connection failed: %v", err)
 	}
-	log.Println("✅ DATABASE CONNECTED SUCCESSFULLY!")
+	// First log server live, then DB connected
+log.Printf("YOUR SERVER IS LIVE AT PORT %s", portStr)
+log.Println("✅ DATABASE CONNECTED SUCCESSFULLY!")
+
+	// Initialize Gin Router
+	router := gin.Default()
+	gin.SetMode(gin.ReleaseMode)
 
 	// Health Check Route
 	router.GET("/", func(c *gin.Context) {
@@ -41,16 +41,9 @@ func main() {
 	public.SetupPublicRoutes(router)
 
 	// Private Routes with JWT Middleware
-	privateRoutes := router.Group("/api/private")
-	privateRoutes.Use(middleware.AuthMiddleware()) // JWT middleware applied here
-	{
-		privateRoutes.POST("/addtodo", private.AddTodo)
-		privateRoutes.GET("/alltodos", private.GetAllTodos)
-		privateRoutes.GET("/getone/:id", private.GetOneTodo)
-		privateRoutes.PUT("/editone/:id", private.EditTodo)
-		privateRoutes.DELETE("/deleteone/:id", private.DeleteTodo)
-		privateRoutes.DELETE("/deleteall", private.DeleteAllTodos)
-	}
+	privateGroup := router.Group("/api/private")
+	privateGroup.Use(middleware.AuthMiddleware())
+	private.SetupPrivateRoutes(privateGroup)
 
 	// Start the Server
 	log.Printf("YOUR SERVER IS LIVE AT PORT %s", portStr)

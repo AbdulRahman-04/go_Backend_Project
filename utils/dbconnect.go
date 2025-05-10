@@ -1,57 +1,42 @@
 package utils
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"time"
+    "context"
+    "fmt"
+    "log"
 
-	"Go_Backend/config"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+    "Go_Backend/config"
+    "go.mongodb.org/mongo-driver/mongo"
+    "go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// Global MongoDB Client
 var client *mongo.Client
 
-// ConnectDB initializes a connection to MongoDB
+// ConnectDB establishes a connection to MongoDB
 func ConnectDB() error {
-	cfg := config.LoadConfig()
-	log.Printf("DEBUG: Loaded DB_URL: '%s'", cfg.DBUrl)
-	log.Printf("🔄 Connecting to MongoDB at %s...", cfg.DBUrl)
+    uri := config.LoadConfig().DBUrl               // ← DBUrl use karo
+    clientOptions := options.Client().ApplyURI(uri)
 
-	// Extended timeouts for remote connections
-	clientOptions := options.Client().
-		ApplyURI(cfg.DBUrl).
-		SetConnectTimeout(20 * time.Second).
-		SetServerSelectionTimeout(20 * time.Second)
+    var err error
+    client, err = mongo.Connect(context.TODO(), clientOptions)
+    if err != nil {
+        return fmt.Errorf("error connecting to MongoDB: %v", err)
+    }
 
-	var err error
-	client, err = mongo.Connect(context.TODO(), clientOptions)
-	if err != nil {
-		log.Fatalf("❌ Failed to connect to database: %v", err)
-		return fmt.Errorf("failed to connect to database: %v", err)
-	}
+    // Ping MongoDB to ensure connection is successful
+    if err = client.Ping(context.TODO(), nil); err != nil {
+        return fmt.Errorf("error pinging MongoDB: %v", err)
+    }
 
-	// Ping the database to ensure connection is valid
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	if err := client.Ping(ctx, nil); err != nil {
-		log.Fatalf("❌ Database ping failed: %v", err)
-		return fmt.Errorf("database ping failed: %v", err)
-	}
-
-	log.Println("✅ DATABASE CONNECTED SUCCESSFULLY!")
-	return nil
+    log.Println("✅ Successfully connected to MongoDB")
+    return nil
 }
 
-// GetCollection returns the specified MongoDB collection.
-// **Important:** Ensure that this is not called during package initialization!
-func GetCollection(name string) *mongo.Collection {
-	if client == nil {
-		log.Fatalf("❌ MongoDB client is nil! Check if ConnectDB() failed.")
-		// This code is unreachable; return nil to satisfy the compiler.
-		return nil
-	}
-	return client.Database("GO_BACKEND").Collection(name)
+// GetCollection returns a collection from the MongoDB database
+func GetCollection(collectionName string) *mongo.Collection {
+    if client == nil {
+        log.Fatal("MongoDB client is nil (did you call ConnectDB?)")
+    }
+    // "GO_BACKEND" ko apne actual DB name se replace kar sakte ho agar alag ho
+    return client.Database("GO_BACKEND").Collection(collectionName)
 }
