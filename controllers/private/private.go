@@ -10,8 +10,10 @@ import (
     "go.mongodb.org/mongo-driver/bson"
     "go.mongodb.org/mongo-driver/bson/primitive"
     "go.mongodb.org/mongo-driver/mongo"
+    "go.mongodb.org/mongo-driver/mongo/options"
 
     "Go_Backend/models"
+    "Go_Backend/middleware"
     "Go_Backend/utils"
 )
 
@@ -21,12 +23,22 @@ var todoCollection *mongo.Collection
 func SetupPrivateRoutes(rg *gin.RouterGroup) {
     todoCollection = utils.GetCollection("todos")
 
-    rg.POST("/addtodo", AddTodo)
-    rg.GET("/alltodos", GetAllTodos)
-    rg.GET("/getone/:id", GetOneTodo)
-    rg.PUT("/editone/:id", EditTodo)
-    rg.DELETE("/deleteone/:id", DeleteTodo)
-    rg.DELETE("/deleteall", DeleteAllTodos)
+   // Har route pe individually RateLimitMiddleware lagao
+    rg.POST("/addtodo", middleware.RateLimitMiddleware(), AddTodo)
+    rg.GET("/alltodos", middleware.RateLimitMiddleware(), GetAllTodos)
+    rg.GET("/getone/:id", middleware.RateLimitMiddleware(), GetOneTodo)
+    rg.PUT("/editone/:id", middleware.RateLimitMiddleware(), EditTodo)
+    rg.DELETE("/deleteone/:id", middleware.RateLimitMiddleware(), DeleteTodo)
+    rg.DELETE("/deleteall", middleware.RateLimitMiddleware(), DeleteAllTodos)
+   
+
+    // // API routes
+    // rg.POST("/addtodo", AddTodo)
+    // rg.GET("/alltodos", GetAllTodos)
+    // rg.GET("/getone/:id", GetOneTodo)
+    // rg.PUT("/editone/:id", EditTodo)
+    // rg.DELETE("/deleteone/:id", DeleteTodo)
+    // rg.DELETE("/deleteall", DeleteAllTodos)
 }
 
 func AddTodo(c *gin.Context) {
@@ -36,10 +48,12 @@ func AddTodo(c *gin.Context) {
         return
     }
 
+    // Uploads folder check kar rahe hain, agar nahi hai toh bana dete hain
     if _, err := os.Stat("uploads"); os.IsNotExist(err) {
         os.Mkdir("uploads", os.ModePerm)
     }
 
+    // Agar koi file upload hui hai toh usko save karenge
     if file, err := c.FormFile("file"); err == nil {
         path := "uploads/" + file.Filename
         if err := c.SaveUploadedFile(file, path); err != nil {
@@ -75,7 +89,13 @@ func GetOneTodo(c *gin.Context) {
 }
 
 func GetAllTodos(c *gin.Context) {
-    cursor, err := todoCollection.Find(context.TODO(), bson.M{})
+    limit, skip := utils.GetPaginationParams(c)
+
+    findOptions := options.Find()
+    findOptions.SetLimit(limit)
+    findOptions.SetSkip(skip)
+
+    cursor, err := todoCollection.Find(context.TODO(), bson.M{}, findOptions)
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"msg": "Database error ❌"})
         return
@@ -87,7 +107,15 @@ func GetAllTodos(c *gin.Context) {
         c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error fetching todos ❌"})
         return
     }
-    c.JSON(http.StatusOK, gin.H{"todos": todos})
+
+    c.JSON(http.StatusOK, gin.H{
+        "todos": todos,
+        "pagination": gin.H{
+            "limit": limit,
+            "skip":  skip,
+            "count": len(todos),
+        },
+    })
 }
 
 func EditTodo(c *gin.Context) {

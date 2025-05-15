@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+
 	"Go_Backend/config"
 	"Go_Backend/controllers/private"
 	"Go_Backend/controllers/public"
@@ -14,40 +15,47 @@ import (
 )
 
 func main() {
-	// Load Configuration
+	// Load Config
 	cfg := config.LoadConfig()
 	portStr := strconv.Itoa(cfg.Port)
 
-	// Connect to MongoDB first
-	log.Println("Connecting to MongoDB... 🔄")
+	// Connect to MongoDB
 	err := utils.ConnectDB()
 	if err != nil {
 		log.Fatalf("❌ Database connection failed: %v", err)
 	}
-	// First log server live, then DB connected
-log.Printf("YOUR SERVER IS LIVE AT PORT %s", portStr)
-log.Println("✅ DATABASE CONNECTED SUCCESSFULLY!")
 
-	// Initialize Gin Router
-	router := gin.Default()
+	// Connect to Redis
+	utils.InitRedis()
+
+	// Setup Gin
 	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
 
-	// Health Check Route
+	// Global Middlewares (excluding RateLimitMiddleware)
+	router.Use(gin.Recovery())                 // Recover from panic
+	router.Use(middleware.LoggerMiddleware())  // Logging
+	router.Use(middleware.CORSMiddleware())    // CORS
+
+	// Health Check
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{"msg": "HELLO IN TS💙"})
 	})
 
-	// Public API Routes
+	// Public Routes
 	public.SetupPublicRoutes(router)
 
-	// Private Routes with JWT Middleware
+	// Private Routes with JWT Auth
 	privateGroup := router.Group("/api/private")
-	privateGroup.Use(middleware.AuthMiddleware())
-	private.SetupPrivateRoutes(privateGroup)
+	privateGroup.Use(middleware.AuthMiddleware()) // JWT Auth
+	private.SetupPrivateRoutes(privateGroup)       // Here we apply RateLimit per route inside
 
-	// Start the Server
-	log.Printf("YOUR SERVER IS LIVE AT PORT %s", portStr)
+	// Server Start Log First
+	log.Printf("🚀 SERVER IS LIVE AT PORT %s", portStr)
+	log.Println("✅ DATABASE CONNECTED SUCCESSFULLY!")
+
+	// Start Server
 	if err := router.Run(fmt.Sprintf(":%s", portStr)); err != nil {
-		log.Fatalf("Failed to run server: %v", err)
+		log.Fatalf("❌ Failed to run server: %v", err)
 	}
 }
