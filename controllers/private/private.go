@@ -114,13 +114,17 @@ func EditTodo(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid ID format ❌", "error": err.Error()})
 		return
 	}
+
 	var updated models.Todo
+	// Bind JSON or multipart/form-data into the updated struct.
 	if err := c.ShouldBind(&updated); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid input ❌", "error": err.Error()})
 		return
 	}
+
 	// Handle file upload if present under key "fileUpload".
 	if file, err := c.FormFile("fileUpload"); err == nil {
+		// Ensure the "uploads" directory exists.
 		if _, err := os.Stat("uploads"); os.IsNotExist(err) {
 			os.Mkdir("uploads", os.ModePerm)
 		}
@@ -131,20 +135,34 @@ func EditTodo(c *gin.Context) {
 		}
 		updated.Image = path
 	}
-	_, err = todoCollection.UpdateOne(
-		context.Background(),
-		bson.M{"_id": objID},
-		bson.M{"$set": bson.M{
+
+	// Create the update document.
+	updateDoc := bson.M{
+		"$set": bson.M{
 			"date":            updated.Date,
 			"taskTitle":       updated.TaskTitle,
 			"taskDescription": updated.TaskDescription,
 			"image":           updated.Image,
-		}},
-	)
+		},
+	}
+
+	// Perform the update.
+	result, err := todoCollection.UpdateOne(context.Background(), bson.M{"_id": objID}, updateDoc)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error updating todo ❌", "error": err.Error()})
 		return
 	}
+
+	// Log the update result for debugging.
+	log.Printf("Update result: Matched=%d, Modified=%d", result.MatchedCount, result.ModifiedCount)
+
+	if result.MatchedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"msg": "Todo not found ❌"})
+		return
+	}
+
+	// If the update was successful (even if ModifiedCount is 0 due to same values),
+	// return a success response.
 	c.JSON(http.StatusOK, gin.H{"msg": "Todo updated successfully ✅", "updatedTodo": updated})
 }
 
