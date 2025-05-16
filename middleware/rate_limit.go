@@ -2,59 +2,49 @@ package middleware
 
 import (
 	"context"
-	"net/http"
-	"strconv"
-	"time"
 	"log"
+	"net/http"
+	"time"
 
 	"Go_Backend/utils"
 	"github.com/gin-gonic/gin"
 )
 
 const (
-	RateLimitCount  = 5
-	RateLimitWindow = time.Minute
+	RateLimitCount  = 5           // ✅ 5 requests allowed per minute
+	RateLimitWindow = time.Minute // ✅ 1-minute window
 )
 
-func RateLimitMiddleware() gin.HandlerFunc {
+func RateLimitMiddleware(group string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := context.Background()
 		ip := c.ClientIP()
-		key := "rate:" + ip + ":" + c.Request.Method + ":" + c.Request.URL.Path
+		endpoint := c.FullPath() // ✅ Get the exact endpoint path
+		key := "ratelimit:" + group + ":" + ip + ":" + endpoint
 
-		// Increment the request count
+		// 🔥 Redis key increment
 		count, err := utils.RedisClient.Incr(ctx, key).Result()
 		if err != nil {
-			log.Printf("Redis INCR error: %v\n", err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
+			log.Println("❌ Redis error:", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Redis error"})
 			return
 		}
 
-		// If first request, set expiration for key
-		if count == 1 {
-			err := utils.RedisClient.Expire(ctx, key, RateLimitWindow).Err()
-			if err != nil {
-				log.Printf("Redis EXPIRE error: %v\n", err)
-			}
+		// 🔥 Fix: Expiry sirf tab set karo jab pehli request aaye (count == 1)
+		exists, _ := utils.RedisClient.Exists(ctx, key).Result()
+		if exists == 1 { // ✅ Agar key already exist karti hai toh expiry set NA karo!
+			ttl, _ := utils.RedisClient.TTL(ctx, key).Result()
+			log.Printf("🚀 RateLimit [%s] | IP: %s | Endpoint: %s | Count: %d | TTL Remaining: %v", group, ip, endpoint, count, ttl)
+		} else { // ✅ Agar key nayi bani hai toh expiry set karo!
+			utils.RedisClient.Expire(ctx, key, RateLimitWindow)
+			log.Printf("🚀 RateLimit [%s] | IP: %s | Endpoint: %s | Count: %d | TTL SET to: %v", group, ip, endpoint, count, RateLimitWindow)
 		}
 
-		// Get TTL to send in header
-		ttl, err := utils.RedisClient.TTL(ctx, key).Result()
-		if err != nil || ttl < 0 {
-			ttl = RateLimitWindow
-		}
-
-		remaining := RateLimitCount - int(count)
-		if remaining < 0 {
-			remaining = 0
-		}
-
-		c.Header("X-RateLimit-Limit", strconv.Itoa(RateLimitCount))
-		c.Header("X-RateLimit-Remaining", strconv.Itoa(remaining))
-		c.Header("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(ttl).Unix(), 10))
-
-		if count > int64(RateLimitCount) {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Rate limit exceeded"})
+		// ✅ Agar request limit exceed ho toh block karo
+		if count > RateLimitCount {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": "Rate limit exceeded. Try again later.",
+			})
 			return
 		}
 

@@ -15,47 +15,44 @@ import (
 )
 
 func main() {
-	// Load Config
+	// Load configuration
 	cfg := config.LoadConfig()
-	portStr := strconv.Itoa(cfg.Port)
 
 	// Connect to MongoDB
-	err := utils.ConnectDB()
-	if err != nil {
-		log.Fatalf("❌ Database connection failed: %v", err)
+	if err := utils.ConnectDB(); err != nil {
+		log.Fatal("Failed to connect to MongoDB:", err)
 	}
+	fmt.Println("MongoDB connected")
 
-	// Connect to Redis
+	// Initialize Redis
 	utils.InitRedis()
 
-	// Setup Gin
-	gin.SetMode(gin.ReleaseMode)
+	// Create Gin router
 	router := gin.New()
 
-	// Global Middlewares (excluding RateLimitMiddleware)
-	router.Use(gin.Recovery())                 // Recover from panic
-	router.Use(middleware.LoggerMiddleware())  // Logging
-	router.Use(middleware.CORSMiddleware())    // CORS
+	// Global Middlewares
+	router.Use(gin.Recovery())
+	router.Use(middleware.LoggerMiddleware())
+	router.Use(middleware.CORSMiddleware())
 
-	// Health Check
-	router.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{"msg": "HELLO IN TS💙"})
-	})
+	// Setup public routes with "public" rate limiter middleware
+	publicGroup := router.Group("/api/public")
+	publicGroup.Use(middleware.RateLimitMiddleware("public"))
+	public.SetupPublicRoutes(publicGroup)
 
-	// Public Routes
-	public.SetupPublicRoutes(router)
-
-	// Private Routes with JWT Auth
+	// Setup private routes with Auth and "private" rate limiter middleware
 	privateGroup := router.Group("/api/private")
-	privateGroup.Use(middleware.AuthMiddleware()) // JWT Auth
-	private.SetupPrivateRoutes(privateGroup)       // Here we apply RateLimit per route inside
+	privateGroup.Use(middleware.AuthMiddleware())
+	privateGroup.Use(middleware.RateLimitMiddleware("private"))
+	private.SetupPrivateRoutes(privateGroup)
 
-	// Server Start Log First
-	log.Printf("🚀 SERVER IS LIVE AT PORT %s", portStr)
-	log.Println("✅ DATABASE CONNECTED SUCCESSFULLY!")
-
-	// Start Server
-	if err := router.Run(fmt.Sprintf(":%s", portStr)); err != nil {
-		log.Fatalf("❌ Failed to run server: %v", err)
+	// Determine port (default is 8080 if not provided)
+	portStr := "8080"
+	if cfg.Port != 0 {
+		portStr = strconv.Itoa(cfg.Port)
+	}
+	log.Println("Server running on port", portStr)
+	if err := router.Run(":" + portStr); err != nil {
+		log.Fatal("Server failed to start:", err)
 	}
 }
