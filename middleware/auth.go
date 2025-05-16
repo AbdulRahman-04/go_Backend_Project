@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log"
 	"net/http"
 	"strings"
 
@@ -10,13 +11,13 @@ import (
 	"Go_Backend/config"
 )
 
-// Claims struct for our JWT payload
+// Claims struct for our JWT payload with correct JSON field name
 type Claims struct {
-	UserID string `json:"user"`
+	UserID string `json:"id"`
 	jwt.RegisteredClaims
 }
 
-// AuthMiddleware validates the JWT token and attaches the user information to the request context
+// AuthMiddleware validates the JWT token and attaches the user information to the request context.
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Retrieve the Authorization header
@@ -33,15 +34,14 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		tokenString := parts[1]
 
-		// Load config to get the JWT key
+		tokenString := strings.TrimSpace(parts[1])
 		cfg := config.LoadConfig()
 		token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-			// Use the JwtKey from our configuration file
 			return []byte(cfg.JwtKey), nil
 		})
 		if err != nil || !token.Valid {
+			log.Printf("JWT parse/validation error: %v", err)
 			c.JSON(http.StatusUnauthorized, gin.H{"msg": "Invalid token ❌"})
 			c.Abort()
 			return
@@ -54,7 +54,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Attach user info to the context (for later use in controllers)
+		// Attach the user info for later use
 		c.Set("user", claims.UserID)
 		c.Next()
 	}
