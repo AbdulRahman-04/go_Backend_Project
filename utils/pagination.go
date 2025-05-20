@@ -6,20 +6,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func GetPaginationParams(c *gin.Context) (int64, int64) {
+// GetPaginationParams reads the "limit" and "skip" query parameters.
+func GetPaginationParams(c *gin.Context) (limit int, skip int) {
 	limitStr := c.DefaultQuery("limit", "10")
-	pageStr := c.DefaultQuery("page", "1")
+	skipStr := c.DefaultQuery("skip", "0")
 
-	limit, _ := strconv.ParseInt(limitStr, 10, 64)
-	page, _ := strconv.ParseInt(pageStr, 10, 64)
-
-	if limit <= 0 {
-		limit = 10
+	lim, err := strconv.Atoi(limitStr)
+	if err != nil {
+		lim = 10
 	}
-	if page <= 0 {
-		page = 1
-	}
-	skip := (page - 1) * limit
 
-	return limit, skip
+	off, err := strconv.Atoi(skipStr)
+	if err != nil {
+		off = 0
+	}
+
+	return lim, off
 }

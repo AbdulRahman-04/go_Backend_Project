@@ -45,10 +45,10 @@ func main() {
 	privateCtrl.SetupPrivateRoutes(privateGroup)
 
 	// Determine port (default: 8080 if cfg.Port is 0)
-	portStr := "8080"
-	if cfg.Port != 0 {
-		portStr = strconv.Itoa(cfg.Port)
-	}
+	portStr := "8080" // Default fallback
+    if cfg.Port != 0 {
+    portStr = strconv.Itoa(cfg.Port)
+    }
 	log.Println("Server running on port", portStr)
 	if err := router.Run(":" + portStr); err != nil {
 		log.Fatal("Server failed to start:", err)
