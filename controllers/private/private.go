@@ -8,10 +8,11 @@ import (
 	"net/http"
 	"os"
 	"time"
-
+	"github.com/go-redis/redis/v8"
+	"errors"
 	"Go_Backend/models"
 	"Go_Backend/utils"
-
+    "strconv"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -70,14 +71,17 @@ func AddTodo(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"msg": "Todo added successfully ✅", "todo": newTodo})
 }
 
+
 func GetAllTodos(c *gin.Context) {
-	// Get pagination parameters (limit & skip) from query parameters.
 	limit, skip := utils.GetPaginationParams(c)
 	cacheKey := fmt.Sprintf("todos_limit_%d_skip_%d", limit, skip)
 	ctx := context.Background()
 
-	// Attempt to retrieve cached data.
 	cached, err := utils.RedisClient.Get(ctx, cacheKey).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		log.Printf("Redis GET error: %v", err)
+	}
+
 	if err == nil && cached != "" {
 		var todos []models.Todo
 		if err := json.Unmarshal([]byte(cached), &todos); err == nil {
@@ -92,11 +96,10 @@ func GetAllTodos(c *gin.Context) {
 			})
 			return
 		} else {
-			log.Printf("Error unmarshalling cached data: %v", err)
+			log.Printf("Unmarshal error: %v", err)
 		}
 	}
 
-	// Cache miss: fetch data from MongoDB.
 	opts := options.Find().SetLimit(int64(limit)).SetSkip(int64(skip))
 	cursor, err := todoCollection.Find(ctx, bson.M{}, opts)
 	if err != nil {
@@ -111,13 +114,10 @@ func GetAllTodos(c *gin.Context) {
 		return
 	}
 
-	// Marshal the result to JSON and store in Redis for 5 minutes.
 	todosJSON, err := json.Marshal(todos)
-	if err != nil {
-		log.Printf("Error marshalling todos: %v", err)
-	} else {
+	if err == nil {
 		if err := utils.RedisClient.Set(ctx, cacheKey, todosJSON, 5*time.Minute).Err(); err != nil {
-			log.Printf("Error setting todos to cache: %v", err)
+			log.Printf("Redis SET error: %v", err)
 		}
 	}
 
@@ -131,6 +131,25 @@ func GetAllTodos(c *gin.Context) {
 		"cache": false,
 	})
 }
+
+
+func GetPaginationParams(c *gin.Context) (int, int) {
+	limitStr := c.DefaultQuery("limit", "10")
+	skipStr := c.DefaultQuery("skip", "0")
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 10
+	}
+	skip, err := strconv.Atoi(skipStr)
+	if err != nil || skip < 0 {
+		skip = 0
+	}
+	return limit, skip
+}
+
+
+
 
 func GetOneTodo(c *gin.Context) {
 	id := c.Param("id")
