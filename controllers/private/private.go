@@ -38,39 +38,31 @@ func SetupPrivateRoutes(rg *gin.RouterGroup) {
 }
 
 func AddTodo(c *gin.Context) {
-	var newTodo models.Todo
+    var newTodo models.Todo
 
-	// Bind JSON or multipart/form-data.
-	if err := c.ShouldBind(&newTodo); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid input ❌", "error": err.Error()})
-		return
-	}
+    // ✅ Bind JSON or multipart/form-data
+    if err := c.ShouldBindJSON(&newTodo); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid input ❌", "error": err.Error()})
+        return
+    }
 
-	// Ensure the "uploads" folder exists.
-	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
-		os.Mkdir("uploads", os.ModePerm)
-	}
+    // ✅ Retrieve file path from middleware
+    filePath := c.GetString("filePath")
+    if filePath != "" {
+        newTodo.Image = filePath
+    }
 
-	// Handle file upload if provided under the key "file".
-	if file, err := c.FormFile("file"); err == nil {
-		path := "uploads/" + file.Filename
-		if err := c.SaveUploadedFile(file, path); err != nil {
-			log.Println("❌ File upload failed:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"msg": "File upload failed ❌", "error": err.Error()})
-			return
-		}
-		newTodo.Image = path
-	}
+    // ✅ Generate MongoDB ObjectID
+    newTodo.ID = primitive.NewObjectID()
 
-	newTodo.ID = primitive.NewObjectID()
-	if _, err := todoCollection.InsertOne(context.Background(), newTodo); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Database error ❌", "error": err.Error()})
-		return
-	}
+    // ✅ Insert into MongoDB
+    if _, err := todoCollection.InsertOne(context.Background(), newTodo); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"msg": "Database error ❌", "error": err.Error()})
+        return
+    }
 
-	c.JSON(http.StatusCreated, gin.H{"msg": "Todo added successfully ✅", "todo": newTodo})
+    c.JSON(http.StatusCreated, gin.H{"msg": "Todo added successfully ✅", "todo": newTodo})
 }
-
 
 func GetAllTodos(c *gin.Context) {
 	limit, skip := utils.GetPaginationParams(c)
