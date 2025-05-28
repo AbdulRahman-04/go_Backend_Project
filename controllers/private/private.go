@@ -159,7 +159,6 @@ func GetOneTodo(c *gin.Context) {
 }
 
 func EditTodo(c *gin.Context) {
-    // Convert URL parameter to ObjectID
     id := c.Param("id")
     objID, err := primitive.ObjectIDFromHex(id)
     if err != nil {
@@ -167,24 +166,20 @@ func EditTodo(c *gin.Context) {
         return
     }
 
-    // Use a dedicated input struct for binding update fields
     var input struct {
         Date            string `json:"date" binding:"required"`
         TodoNo          int    `json:"todoNo" binding:"required"`
         TaskTitle       string `json:"taskTitle" binding:"required"`
         TaskDescription string `json:"taskDescription" binding:"required"`
     }
-    
-    // Bind JSON data – ensure keys are in lower-case (e.g., "date", "todoNo")
+
     if err := c.ShouldBindJSON(&input); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"msg": "Invalid input ❌", "error": err.Error()})
         return
     }
-    
-    // Handle file upload if provided under "fileUpload"
-    filePath := "" // Will store new image path if uploaded
+
+    filePath := "" // New image path, if uploaded
     if file, err := c.FormFile("fileUpload"); err == nil {
-        // Ensure "uploads" folder exists
         if _, err := os.Stat("uploads"); os.IsNotExist(err) {
             os.Mkdir("uploads", os.ModePerm)
         }
@@ -195,8 +190,7 @@ func EditTodo(c *gin.Context) {
         }
         filePath = path
     }
-    
-    // Build update document – include file path if new file is uploaded
+
     updateData := bson.M{
         "date":            input.Date,
         "todoNo":          input.TodoNo,
@@ -206,46 +200,29 @@ func EditTodo(c *gin.Context) {
     if filePath != "" {
         updateData["image"] = filePath
     }
-    
+
     updateDoc := bson.M{"$set": updateData}
-    
-    // Perform the update operation in MongoDB
+
     result, err := todoCollection.UpdateOne(context.Background(), bson.M{"_id": objID}, updateDoc)
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error updating todo ❌", "error": err.Error()})
         return
     }
-    
     if result.MatchedCount == 0 {
         c.JSON(http.StatusNotFound, gin.H{"msg": "Todo not found ❌"})
         return
     }
-    
-    // Build the response todo with the correct ID
-    // Note: If file wasn't updated, we can fetch the existing file path if needed.
-    var existing models.Todo
-    if err := todoCollection.FindOne(context.Background(), bson.M{"_id": objID}).Decode(&existing); err != nil {
-        // Not fatal – we already updated the document. Use empty string if not found.
-        existing.Image = ""
+
+    // ✅ Fetch Updated Todo from MongoDB to ensure correct ID binding
+    var updatedTodo models.Todo
+    if err := todoCollection.FindOne(context.Background(), bson.M{"_id": objID}).Decode(&updatedTodo); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error fetching updated todo ❌", "error": err.Error()})
+        return
     }
-    
-    respTodo := models.Todo{
-        ID:              objID,
-        Date:            input.Date,
-        TodoNo:          input.TodoNo,
-        TaskTitle:       input.TaskTitle,
-        TaskDescription: input.TaskDescription,
-        Image:           filePath,
-    }
-    
-    // If no new file was uploaded, ensure we return the existing image path
-    if respTodo.Image == "" {
-        respTodo.Image = existing.Image
-    }
-    
+
     c.JSON(http.StatusOK, gin.H{
-        "msg":         "Todo updated successfully ✅", 
-        "updatedTodo": respTodo,
+        "msg":         "Todo updated successfully ✅",
+        "updatedTodo": updatedTodo,
     })
 }
 
