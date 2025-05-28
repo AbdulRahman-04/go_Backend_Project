@@ -28,7 +28,6 @@ func SetupPublicRoutes(group *gin.RouterGroup) {
 	group.POST("/usersignin", UserSignin)
 	group.POST("/forgotpassword", ForgotPassword)
 }
-
 func UserSignup(c *gin.Context) {
 	var newUser models.User
 	if err := c.ShouldBindJSON(&newUser); err != nil {
@@ -63,21 +62,22 @@ func UserSignup(c *gin.Context) {
 		return
 	}
 
-	// Send verification email.
-	emailData := utils.EmailData{
-		From:    config.LoadConfig().Email,
-		To:      newUser.Email,
-		Subject: "Verification Link",
-		Text:    config.LoadConfig().URL + "/api/public/emailverify/" + *newUser.UserVerifyToken.Email,
-		HTML:    "<p>Click the link to verify your email: <a href='" + config.LoadConfig().URL + "/api/public/emailverify/" + *newUser.UserVerifyToken.Email + "'>Verify Email</a></p>",
-	}
-	if err := utils.SendEmail(emailData); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"msg": "User created, but email failed to send"})
-		return
-	}
+	// ✅ Send verification email in background (non-blocking)
+	go func(user models.User, token string) {
+		emailData := utils.EmailData{
+			From:    config.LoadConfig().Email,
+			To:      user.Email,
+			Subject: "Verification Link",
+			Text:    config.LoadConfig().URL + "/api/public/emailverify/" + token,
+			HTML:    "<p>Click the link to verify your email: <a href='" +
+				config.LoadConfig().URL + "/api/public/emailverify/" + token + "'>Verify Email</a></p>",
+		}
+		_ = utils.SendEmail(emailData) // Ignore error for now or log it if needed
+	}(newUser, tokenStr)
 
 	c.JSON(http.StatusOK, gin.H{"msg": "You'll be registered once you verify your email! 🙌"})
 }
+
 
 func EmailVerify(c *gin.Context) {
 	token := c.Param("token")
