@@ -4,6 +4,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -11,16 +13,49 @@ import (
 	"Go_Backend/config"
 )
 
-// Claims struct for our JWT payload with correct JSON field name
+// Claims struct for our JWT payload.
 type Claims struct {
 	UserID string `json:"id"`
 	jwt.RegisteredClaims
 }
 
-// AuthMiddleware validates the JWT token and attaches the user information to the request context.
+var (
+	// jwtKey holds the secret key loaded once.
+	jwtKey []byte
+	// tokenCache caches token string to its claims.
+	tokenCache sync.Map // map[string]*Claims
+)
+
+func init() {
+	// Load configuration once and cache the JWT key.
+	cfg := config.LoadConfig()
+	jwtKey = []byte(cfg.JwtKey)
+}
+
+// getCachedClaims returns the cached claims for a token if still valid.
+func getCachedClaims(tokenString string) (*Claims, bool) {
+	if cached, ok := tokenCache.Load(tokenString); ok {
+		if claims, ok := cached.(*Claims); ok {
+			// Optional: verify that the token hasn't expired.
+			if claims.ExpiresAt != nil && claims.ExpiresAt.Time.After(time.Now()) {
+				return claims, true
+			}
+			// If expired, remove it from the cache.
+			tokenCache.Delete(tokenString)
+		}
+	}
+	return nil, false
+}
+
+// cacheClaims stores the claims for a token in the cache.
+func cacheClaims(tokenString string, claims *Claims) {
+	tokenCache.Store(tokenString, claims)
+}
+
+// AuthMiddleware validates the JWT token and attaches the user info to the request context.
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Retrieve the Authorization header
+		// Retrieve the Authorization header.
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"msg": "No token provided ❌"})
@@ -36,9 +71,17 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		tokenString := strings.TrimSpace(parts[1])
-		cfg := config.LoadConfig()
+
+		// Check if claims for this token are cached.
+		if claims, found := getCachedClaims(tokenString); found {
+			c.Set("user", claims.UserID)
+			c.Next()
+			return
+		}
+
+		// Parse the JWT token.
 		token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-			return []byte(cfg.JwtKey), nil
+			return jwtKey, nil
 		})
 		if err != nil || !token.Valid {
 			log.Printf("JWT parse/validation error: %v", err)
@@ -54,7 +97,10 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Attach the user info for later use
+		// Cache the claims for future requests.
+		cacheClaims(tokenString, claims)
+
+		// Attach the user information for later use.
 		c.Set("user", claims.UserID)
 		c.Next()
 	}
