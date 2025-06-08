@@ -16,8 +16,10 @@ import (
 	"Go_Backend/utils"
 )
 
-var jwtKey = []byte(config.LoadConfig().JwtKey)
-var userCollection *mongo.Collection
+var (
+	jwtKey         = []byte(config.LoadConfig().JwtKey)
+	userCollection *mongo.Collection
+)
 
 // SetupPublicRoutes registers all public endpoints.
 func SetupPublicRoutes(group *gin.RouterGroup) {
@@ -28,6 +30,7 @@ func SetupPublicRoutes(group *gin.RouterGroup) {
 	group.POST("/usersignin", UserSignin)
 	group.POST("/forgotpassword", ForgotPassword)
 }
+
 func UserSignup(c *gin.Context) {
 	var newUser models.User
 	if err := c.ShouldBindJSON(&newUser); err != nil {
@@ -35,7 +38,7 @@ func UserSignup(c *gin.Context) {
 		return
 	}
 
-	// Check if user already exists.
+	// Check if user already exists
 	var existingUser models.User
 	err := userCollection.FindOne(context.TODO(), bson.M{"email": newUser.Email}).Decode(&existingUser)
 	if err == nil {
@@ -43,7 +46,7 @@ func UserSignup(c *gin.Context) {
 		return
 	}
 
-	// Hash password.
+	// Hash password
 	hashedPass, err := bcrypt.GenerateFromPassword([]byte(newUser.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error hashing password"})
@@ -51,18 +54,18 @@ func UserSignup(c *gin.Context) {
 	}
 	newUser.Password = string(hashedPass)
 
-	// Generate verification token.
+	// Generate verification token
 	tokenStr := utils.GenerateRandomToken()
 	newUser.UserVerifyToken.Email = &tokenStr
 
-	// Insert user.
+	// Insert new user
 	_, err = userCollection.InsertOne(context.TODO(), newUser)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Database error"})
 		return
 	}
 
-	// ✅ Send verification email in background (non-blocking)
+	// Send verification email in background
 	go func(user models.User, token string) {
 		emailData := utils.EmailData{
 			From:    config.LoadConfig().Email,
@@ -72,12 +75,11 @@ func UserSignup(c *gin.Context) {
 			HTML:    "<p>Click the link to verify your email: <a href='" +
 				config.LoadConfig().URL + "/api/public/emailverify/" + token + "'>Verify Email</a></p>",
 		}
-		_ = utils.SendEmail(emailData) // Ignore error for now or log it if needed
+		_ = utils.SendEmail(emailData)
 	}(newUser, tokenStr)
 
-	c.JSON(http.StatusOK, gin.H{"msg": "You'll be registered once you verify your email! 🙌"})
+	c.JSON(http.StatusOK, gin.H{"msg": "You’ll be registered once you verify your email! 🙌"})
 }
-
 
 func EmailVerify(c *gin.Context) {
 	token := c.Param("token")
@@ -97,6 +99,7 @@ func EmailVerify(c *gin.Context) {
 		"$set":   bson.M{"userVerified.email": true},
 		"$unset": bson.M{"userVerifyToken.email": ""},
 	}
+
 	_, err = userCollection.UpdateOne(context.TODO(), bson.M{"email": user.Email}, update)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Error updating user"})
@@ -137,7 +140,7 @@ func UserSignin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"msg": "User Logged in Successfully! 🙌", "token": token})
+	c.JSON(http.StatusOK, gin.H{"msg": "User logged in successfully! 🙌", "token": token})
 }
 
 func ForgotPassword(c *gin.Context) {
@@ -169,17 +172,17 @@ func ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	emailData := utils.EmailData{
-		From:    config.LoadConfig().Email,
-		To:      req.Email,
-		Subject: "New Password",
-		Text:    "Your new password is: " + newPass,
-		HTML:    "<h3>Your new password is:</h3><p><b>" + newPass + "</b></p>",
-	}
-	if err := utils.SendEmail(emailData); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"msg": "Password updated, but email failed to send"})
-		return
-	}
+	// Send password email asynchronously
+	go func() {
+		emailData := utils.EmailData{
+			From:    config.LoadConfig().Email,
+			To:      req.Email,
+			Subject: "New Password",
+			Text:    "Your new password is: " + newPass,
+			HTML:    "<h3>Your new password is:</h3><p><b>" + newPass + "</b></p>",
+		}
+		_ = utils.SendEmail(emailData)
+	}()
 
 	c.JSON(http.StatusOK, gin.H{"msg": "New password sent to your email successfully!"})
 }
