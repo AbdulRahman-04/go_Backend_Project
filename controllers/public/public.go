@@ -58,8 +58,8 @@ func UserSignup(c *gin.Context) {
 
 	// Generate verification token.
 	tokenStr := utils.GenerateRandomToken()
-	// Store token as plain string instead of pointer.
-	newUser.UserVerifyToken.Email = tokenStr
+	// Since UserVerifyToken.Email expects a *string, pass the address.
+	newUser.UserVerifyToken.Email = &tokenStr
 
 	// Insert new user.
 	_, err = userCollection.InsertOne(context.TODO(), newUser)
@@ -70,12 +70,13 @@ func UserSignup(c *gin.Context) {
 
 	// URL-escape the token to avoid issues with special characters.
 	escapedToken := url.QueryEscape(tokenStr)
+	emailURL := config.LoadConfig().URL + "/api/public/emailverify/" + escapedToken
 	emailData := utils.EmailData{
 		From:    config.LoadConfig().Email,
 		To:      newUser.Email,
 		Subject: "Verification Link",
-		Text:    config.LoadConfig().URL + "/api/public/emailverify/" + escapedToken,
-		HTML:    "<p>Click the link to verify your email: <a href='" + config.LoadConfig().URL + "/api/public/emailverify/" + escapedToken + "'>Verify Email</a></p>",
+		Text:    emailURL,
+		HTML:    "<p>Click the link to verify your email: <a href='" + emailURL + "'>Verify Email</a></p>",
 	}
 
 	// Queue the verification email asynchronously.
@@ -101,7 +102,11 @@ func EmailVerify(c *gin.Context) {
 	}
 
 	fmt.Println("Received Token:", token)
-	fmt.Println("Stored Token in DB:", user.UserVerifyToken.Email)
+	if user.UserVerifyToken.Email != nil {
+		fmt.Println("Stored Token in DB:", *user.UserVerifyToken.Email)
+	} else {
+		fmt.Println("Stored Token in DB is nil")
+	}
 
 	if user.UserVerified.Email {
 		c.JSON(http.StatusOK, gin.H{"msg": "User email already verified"})
